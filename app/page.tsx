@@ -214,6 +214,8 @@ export default function PodcastSemanticSearch() {
   const [results, setResults] = useState<Podcast[]>(podcastData);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [searchStatus, setSearchStatus] = useState<string>("");
+  const [isTyping, setIsTyping] = useState<boolean>(false);
+  const [shouldUseAPI, setShouldUseAPI] = useState<boolean>(false);
 
   const categories = useMemo(() => {
     const cats = [...new Set(podcastData.map((p) => p.category))];
@@ -226,10 +228,50 @@ export default function PodcastSemanticSearch() {
     return Array.from(tags);
   }, []);
 
+  // Handle search input with typing detection
+  const handleSearchInput = (value: string) => {
+    setSearchQuery(value);
+    setIsTyping(true);
+
+    // Determine if we should use API based on query characteristics
+    const shouldCallAPI =
+      value.length >= 2 && // Minimum 2 characters
+      !/^[\s]*$/.test(value) && // Not just whitespace
+      !value.endsWith(" "); // Not ending with space (still typing)
+
+    setShouldUseAPI(shouldCallAPI);
+  };
+
+  // Detect when user stops typing
+  useEffect(() => {
+    if (!isTyping) return;
+
+    const typingTimer = setTimeout(() => {
+      setIsTyping(false);
+    }, 800); // Consider stopped typing after 800ms
+
+    return () => clearTimeout(typingTimer);
+  }, [searchQuery, isTyping]);
+
   useEffect(() => {
     const performSearch = async () => {
       if (!searchQuery.trim() && !selectedCategory) {
         setResults(podcastData);
+        return;
+      }
+
+      // For short queries or while typing, use local search only
+      if (searchQuery.length < 2 || isTyping) {
+        const filtered = selectedCategory
+          ? podcastData.filter((p) => p.category === selectedCategory)
+          : podcastData;
+
+        if (searchQuery.trim()) {
+          const localResults = localSemanticSearch(searchQuery, filtered);
+          setResults(localResults);
+        } else {
+          setResults(filtered);
+        }
         return;
       }
 
@@ -255,14 +297,20 @@ export default function PodcastSemanticSearch() {
         filtered = filtered.filter((p) => p.category === selectedCategory);
       }
 
-      // 語義搜尋 - Use Pinecone or fallback to local
+      // 語義搜尋 - Use API only when not typing and query is substantial
       if (searchQuery.trim()) {
         try {
-          filtered = await semanticSearchWithPinecone(
-            searchQuery,
-            filtered,
-            setSearchStatus
-          );
+          if (shouldUseAPI && !isTyping) {
+            // Use API for semantic search
+            filtered = await semanticSearchWithPinecone(
+              searchQuery,
+              filtered,
+              setSearchStatus
+            );
+          } else {
+            // Use local search for immediate feedback
+            filtered = localSemanticSearch(searchQuery, filtered);
+          }
         } catch (error) {
           console.error("Search error:", error);
           filtered = localSemanticSearch(searchQuery, filtered);
@@ -274,9 +322,18 @@ export default function PodcastSemanticSearch() {
       setSearchStatus("");
     };
 
-    const debounceTimer = setTimeout(performSearch, 300);
+    // Debounce search with different delays based on context
+    const debounceDelay = isTyping
+      ? 150 // Quick local search while typing
+      : searchQuery.length < 3
+      ? 300 // Medium delay for short queries
+      : shouldUseAPI
+      ? 1000
+      : 300; // Longer delay for API calls
+
+    const debounceTimer = setTimeout(performSearch, debounceDelay);
     return () => clearTimeout(debounceTimer);
-  }, [searchQuery, selectedCategory]);
+  }, [searchQuery, selectedCategory, isTyping, shouldUseAPI]);
 
   const formatDate = (dateStr: string): string => {
     const date = new Date(dateStr);
@@ -326,26 +383,41 @@ export default function PodcastSemanticSearch() {
               type="text"
               placeholder="搜尋 Podcast 內容... (例如：美食推薦、政治新聞)"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchInput(e.target.value)}
               className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            {isSearching && (
+            {(isSearching || isTyping) && (
               <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
                 <div className="flex items-center space-x-1">
-                  {/* Siri-like mini wave in search box */}
-                  {[...Array(4)].map((_, i) => (
-                    <div
-                      key={i}
-                      className="w-0.5 bg-blue-500 rounded-full"
-                      style={{
-                        height: `${8 + Math.random() * 8}px`,
-                        animationName: "pulse",
-                        animationDuration: `${600 + Math.random() * 200}ms`,
-                        animationDelay: `${i * 150}ms`,
-                        animationIterationCount: "infinite",
-                      }}
-                    />
-                  ))}
+                  {isTyping ? (
+                    // Simple typing indicator
+                    <div className="flex space-x-1">
+                      <div className="w-1 h-4 bg-gray-400 rounded-full animate-pulse"></div>
+                      <div
+                        className="w-1 h-4 bg-gray-400 rounded-full animate-pulse"
+                        style={{ animationDelay: "0.2s" }}
+                      ></div>
+                      <div
+                        className="w-1 h-4 bg-gray-400 rounded-full animate-pulse"
+                        style={{ animationDelay: "0.4s" }}
+                      ></div>
+                    </div>
+                  ) : (
+                    // Siri-like mini wave for API processing
+                    [...Array(4)].map((_, i) => (
+                      <div
+                        key={i}
+                        className="w-0.5 bg-blue-500 rounded-full"
+                        style={{
+                          height: `${8 + Math.random() * 8}px`,
+                          animationName: "pulse",
+                          animationDuration: `${600 + Math.random() * 200}ms`,
+                          animationDelay: `${i * 150}ms`,
+                          animationIterationCount: "infinite",
+                        }}
+                      />
+                    ))
+                  )}
                 </div>
               </div>
             )}
@@ -369,8 +441,8 @@ export default function PodcastSemanticSearch() {
           </div>
         </div>
 
-        {/* Siri-like AI Thinking Animation */}
-        {isSearching && (
+        {/* Siri-like AI Thinking Animation - Only show for API calls */}
+        {isSearching && !isTyping && (
           <div className="mb-4 p-6 bg-gradient-to-r from-slate-50 via-blue-50 to-purple-50 rounded-2xl border border-blue-100 shadow-sm">
             <div className="flex flex-col items-center space-y-4">
               {/* Siri Wave Animation */}
@@ -530,7 +602,7 @@ export default function PodcastSemanticSearch() {
       <div className="bg-white rounded-lg shadow-md">
         <div className="p-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold">
-            {isSearching ? (
+            {isSearching && !isTyping ? (
               <span className="flex items-center space-x-2">
                 <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
                 <span>AI 正在搜尋中...</span>
@@ -539,9 +611,21 @@ export default function PodcastSemanticSearch() {
               <>
                 搜尋結果 ({results.length} 個節目)
                 {searchQuery && (
-                  <span className="text-blue-600 ml-2">
-                    關於 &quot;{searchQuery}&quot;
-                  </span>
+                  <>
+                    <span className="text-blue-600 ml-2">
+                      關於 &quot;{searchQuery}&quot;
+                    </span>
+                    {isTyping && (
+                      <span className="text-orange-500 text-sm ml-2">
+                        (本地搜尋)
+                      </span>
+                    )}
+                    {!isTyping && shouldUseAPI && searchQuery.length >= 2 && (
+                      <span className="text-green-600 text-sm ml-2">
+                        (AI 語義搜尋)
+                      </span>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -549,7 +633,7 @@ export default function PodcastSemanticSearch() {
         </div>
 
         <div className="divide-y divide-gray-200">
-          {isSearching ? (
+          {isSearching && !isTyping ? (
             // Siri-like AI Thinking Placeholder
             <div className="p-12 text-center">
               <div className="max-w-md mx-auto">
