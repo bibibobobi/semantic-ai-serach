@@ -225,11 +225,13 @@ export default function PodcastSemanticSearch() {
                   {[...Array(4)].map((_, i) => (
                     <div
                       key={i}
-                      className="w-0.5 bg-blue-500 rounded-full animate-pulse"
+                      className="w-0.5 bg-blue-500 rounded-full"
                       style={{
                         height: `${8 + Math.random() * 8}px`,
-                        animationDelay: `${i * 150}ms`,
+                        animationName: "pulse",
                         animationDuration: `${600 + Math.random() * 200}ms`,
+                        animationDelay: `${i * 150}ms`,
+                        animationIterationCount: "infinite",
                       }}
                     />
                   ))}
@@ -266,11 +268,13 @@ export default function PodcastSemanticSearch() {
                   {[...Array(12)].map((_, i) => (
                     <div
                       key={i}
-                      className="w-1 bg-gradient-to-t from-blue-400 via-purple-500 to-indigo-600 rounded-full animate-pulse"
+                      className="w-1 bg-gradient-to-t from-blue-400 via-purple-500 to-indigo-600 rounded-full"
                       style={{
                         height: `${Math.random() * 40 + 10}px`,
-                        animationDelay: `${i * 100}ms`,
+                        animationName: "pulse",
                         animationDuration: `${800 + Math.random() * 400}ms`,
+                        animationDelay: `${i * 100}ms`,
+                        animationIterationCount: "infinite",
                       }}
                     />
                   ))}
@@ -285,8 +289,13 @@ export default function PodcastSemanticSearch() {
                     {searchStatus}
                   </span>
                   <div
-                    className="w-2 h-2 bg-purple-500 rounded-full animate-ping"
-                    style={{ animationDelay: "0.5s" }}
+                    className="w-2 h-2 bg-purple-500 rounded-full"
+                    style={{
+                      animationName: "ping",
+                      animationDelay: "0.5s",
+                      animationDuration: "1s",
+                      animationIterationCount: "infinite",
+                    }}
                   />
                 </div>
 
@@ -298,10 +307,11 @@ export default function PodcastSemanticSearch() {
                       className="absolute w-1 h-1 bg-blue-400 rounded-full opacity-60"
                       style={{
                         left: `${15 + i * 15}%`,
-                        animation: `float ${
-                          2 + Math.random()
-                        }s ease-in-out infinite`,
+                        animationName: "float",
+                        animationDuration: `${2 + Math.random()}s`,
                         animationDelay: `${i * 0.3}s`,
+                        animationTimingFunction: "ease-in-out",
+                        animationIterationCount: "infinite",
                       }}
                     />
                   ))}
@@ -443,10 +453,11 @@ export default function PodcastSemanticSearch() {
                           height: `${
                             20 + Math.sin(Date.now() / 200 + i) * 30
                           }px`,
-                          animation: `wave ${
-                            1000 + i * 50
-                          }ms ease-in-out infinite`,
+                          animationName: "wave",
+                          animationDuration: `${1000 + i * 50}ms`,
                           animationDelay: `${i * 100}ms`,
+                          animationTimingFunction: "ease-in-out",
+                          animationIterationCount: "infinite",
                         }}
                       />
                     ))}
@@ -471,7 +482,10 @@ export default function PodcastSemanticSearch() {
                         transform: `translate(-50%, -50%) rotate(${
                           i * 45
                         }deg) translateY(-60px)`,
-                        animation: `orbit ${3000 + i * 200}ms linear infinite`,
+                        animationName: "orbit",
+                        animationDuration: `${3000 + i * 200}ms`,
+                        animationTimingFunction: "linear",
+                        animationIterationCount: "infinite",
                       }}
                     />
                   ))}
@@ -487,15 +501,25 @@ export default function PodcastSemanticSearch() {
                   </div>
                   <div className="flex flex-col items-center space-y-1">
                     <div
-                      className="w-3 h-3 bg-green-400 rounded-full animate-pulse"
-                      style={{ animationDelay: "0.5s" }}
+                      className="w-3 h-3 bg-green-400 rounded-full"
+                      style={{
+                        animationName: "pulse",
+                        animationDelay: "0.5s",
+                        animationDuration: "2s",
+                        animationIterationCount: "infinite",
+                      }}
                     />
                     <span>匹配內容</span>
                   </div>
                   <div className="flex flex-col items-center space-y-1">
                     <div
-                      className="w-3 h-3 bg-purple-400 rounded-full animate-pulse"
-                      style={{ animationDelay: "1s" }}
+                      className="w-3 h-3 bg-purple-400 rounded-full"
+                      style={{
+                        animationName: "pulse",
+                        animationDelay: "1s",
+                        animationDuration: "2s",
+                        animationIterationCount: "infinite",
+                      }}
                     />
                     <span>排序結果</span>
                   </div>
