@@ -3,6 +3,8 @@ require("dotenv").config({ path: ".env.local" });
 
 const OpenAI = require("openai");
 const { Pinecone } = require("@pinecone-database/pinecone");
+const fs = require("fs");
+const path = require("path");
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -11,6 +13,9 @@ const openai = new OpenAI({
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY,
 });
+
+// Cache file for embeddings
+const CACHE_FILE = path.join(__dirname, "embeddings-cache.json");
 
 const podcastData = [
   {
@@ -351,8 +356,50 @@ const podcastData = [
   },
 ];
 
+// Load cached embeddings
+function loadCache() {
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      const cache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
+      console.log(`📦 Loaded ${Object.keys(cache).length} cached embeddings`);
+      return cache;
+    }
+  } catch (error) {
+    console.log("⚠️  Cache file corrupted, starting fresh");
+  }
+  return {};
+}
+
+// Save embeddings to cache
+function saveCache(cache) {
+  try {
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+    console.log(`💾 Saved embeddings cache`);
+  } catch (error) {
+    console.error("⚠️  Failed to save cache:", error.message);
+  }
+}
+
+// Generate content hash for change detection
+function generateContentHash(podcast) {
+  const content = `${podcast.title}|${podcast.description}|${
+    podcast.fullDescription || ""
+  }|${podcast.tags.join(",")}`;
+  return require("crypto").createHash("md5").update(content).digest("hex");
+}
+
+// Check if podcast already exists in Pinecone
+async function podcastExistsInPinecone(index, podcastId) {
+  try {
+    const result = await index.fetch([podcastId.toString()]);
+    return result.records && Object.keys(result.records).length > 0;
+  } catch (error) {
+    return false;
+  }
+}
+
 async function setupPinecone() {
-  console.log("🔧 Setting up Pinecone vector database...");
+  console.log("🔧 Setting up Pinecone vector database with caching...");
 
   // Check environment variables
   if (!process.env.OPENAI_API_KEY) {
@@ -365,6 +412,9 @@ async function setupPinecone() {
     process.exit(1);
   }
 
+  // Load existing cache
+  const embeddingsCache = loadCache();
+
   try {
     // Create index if it doesn't exist
     console.log("📝 Creating Pinecone index...");
@@ -372,7 +422,7 @@ async function setupPinecone() {
     try {
       await pinecone.createIndex({
         name: "podcast-search",
-        dimension: 1536, // text-embedding-3-small dimension
+        dimension: 1536,
         metric: "cosine",
         spec: {
           serverless: {
@@ -390,36 +440,75 @@ async function setupPinecone() {
       }
     }
 
-    // Wait a moment for index to be ready
+    // Wait for index to be ready
     console.log("⏳ Waiting for index to be ready...");
     await new Promise((resolve) => setTimeout(resolve, 3000));
 
     const index = pinecone.index("podcast-search");
 
-    console.log("🚀 Generating embeddings for podcasts...");
-    console.log(`📊 Processing ${podcastData.length} podcasts...`);
+    console.log("🚀 Processing podcasts with smart caching...");
+    console.log(`📊 Total podcasts: ${podcastData.length}`);
 
-    // Process each podcast
+    let processed = 0;
+    let skipped = 0;
+    let generated = 0;
+
     for (let i = 0; i < podcastData.length; i++) {
       const podcast = podcastData[i];
+      const contentHash = generateContentHash(podcast);
+      const cacheKey = `${podcast.id}_${contentHash}`;
 
-      try {
-        // Create text content for embedding
+      console.log(`\n🔄 Processing podcast ${podcast.id}: ${podcast.title}`);
+
+      // Check if already exists in Pinecone
+      const existsInPinecone = await podcastExistsInPinecone(index, podcast.id);
+
+      if (existsInPinecone && embeddingsCache[cacheKey]) {
+        console.log(`⏭️  Skipping - already exists and cached`);
+        skipped++;
+        continue;
+      }
+
+      let embedding;
+
+      // Check cache first
+      if (embeddingsCache[cacheKey]) {
+        console.log(`📦 Using cached embedding`);
+        embedding = embeddingsCache[cacheKey];
+      } else {
+        // Generate new embedding
+        console.log(`🤖 Generating new embedding...`);
         const text = `${podcast.title} ${podcast.description} ${
           podcast.fullDescription || ""
         } ${podcast.tags.join(" ")}`;
 
-        console.log(`🔄 Processing podcast ${podcast.id}: ${podcast.title}`);
+        try {
+          const embeddingResponse = await openai.embeddings.create({
+            model: "text-embedding-3-small",
+            input: text,
+          });
 
-        // Generate embedding
-        const embeddingResponse = await openai.embeddings.create({
-          model: "text-embedding-3-small",
-          input: text,
-        });
+          embedding = embeddingResponse.data[0].embedding;
 
-        const embedding = embeddingResponse.data[0].embedding;
+          // Cache the result
+          embeddingsCache[cacheKey] = embedding;
+          console.log(`💾 Cached new embedding`);
+          generated++;
 
-        // Upsert to Pinecone
+          // Small delay to respect rate limits
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        } catch (error) {
+          console.error(`❌ Error generating embedding:`, error.message);
+          continue;
+        }
+      }
+
+      // Upsert to Pinecone
+      try {
+        const text = `${podcast.title} ${podcast.description} ${
+          podcast.fullDescription || ""
+        } ${podcast.tags.join(" ")}`;
+
         await index.upsert([
           {
             id: podcast.id.toString(),
@@ -433,25 +522,35 @@ async function setupPinecone() {
               publishDate: podcast.publishDate,
               tags: podcast.tags,
               text: text,
+              contentHash: contentHash,
             },
           },
         ]);
 
-        console.log(`✅ Embedded podcast ${podcast.id}: ${podcast.title}`);
-
-        // Small delay to respect rate limits
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        console.log(`✅ Upserted to Pinecone`);
+        processed++;
       } catch (error) {
-        console.error(
-          `❌ Error processing podcast ${podcast.id}:`,
-          error.message
-        );
-        // Continue with next podcast
+        console.error(`❌ Error upserting to Pinecone:`, error.message);
       }
     }
 
-    console.log("🎉 Pinecone setup complete!");
-    console.log(`📈 Successfully processed ${podcastData.length} podcasts`);
+    // Save updated cache
+    saveCache(embeddingsCache);
+
+    console.log("\n🎉 Pinecone setup complete!");
+    console.log(`📈 Summary:`);
+    console.log(`   • Processed: ${processed} podcasts`);
+    console.log(`   • Skipped (already exists): ${skipped} podcasts`);
+    console.log(`   • New embeddings generated: ${generated}`);
+    console.log(
+      `   • Total cached embeddings: ${Object.keys(embeddingsCache).length}`
+    );
+
+    if (generated > 0) {
+      const estimatedCost = generated * 0.00001; // Rough estimate
+      console.log(`💰 Estimated OpenAI cost: ~$${estimatedCost.toFixed(4)}`);
+    }
+
     console.log("🔍 You can now use semantic search in your application!");
     console.log("🚀 Try running: npm run dev");
   } catch (error) {
@@ -460,5 +559,24 @@ async function setupPinecone() {
   }
 }
 
+// Command line options
+const args = process.argv.slice(2);
+if (args.includes("--clear-cache")) {
+  console.log("🗑️  Clearing embeddings cache...");
+  if (fs.existsSync(CACHE_FILE)) {
+    fs.unlinkSync(CACHE_FILE);
+    console.log("✅ Cache cleared");
+  }
+}
+
 // Run the setup
 setupPinecone();
+
+// # First run - generates all embeddings
+// node scripts/setup-vector-db-optimized.js
+
+// # Subsequent runs - uses cache, much faster!
+// node scripts/setup-vector-db-optimized.js
+
+// # Clear cache and start fresh (if needed)
+// node scripts/setup-vector-db-optimized.js --clear-cache
