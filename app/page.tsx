@@ -365,10 +365,10 @@ export default function PodcastSemanticSearch() {
     <div className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+        <h1 className="notranslate text-3xl font-bold text-gray-900 mb-2">
           鏡週刊 Podcasts 語義搜尋
         </h1>
-        <p className="text-gray-600">
+        <p translate="no" className="text-gray-600">
           使用 AI 技術智能搜尋您感興趣的 Podcast 內容
         </p>
       </div>
